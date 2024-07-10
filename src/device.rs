@@ -207,18 +207,18 @@ pub trait Memory {
 }
 
 /// SS25* flash memory chip
-pub struct Flash<B: Transfer<u8>, P: OutputPin> {
+pub struct Flash<B: Transfer<u8>, P1: OutputPin, P2: OutputPin, P3: OutputPin> {
     /// SPI bus
     bus: B,
 
     /// GPIO EN pin
-    pin_enable: P,
+    pin_enable: P1,
 
     /// GPIO WP pin
-    pin_write_protection: P,
+    pin_write_protection: P2,
 
     /// GPIO Hold pin
-    pin_hold: P,
+    pin_hold: P3,
 
     /// Is the device configured?
     configured: bool,
@@ -229,18 +229,18 @@ pub struct Flash<B: Transfer<u8>, P: OutputPin> {
 
 /// Error when communicating with the device
 #[derive(PartialEq, Eq)]
-pub enum CommandError<B: Transfer<u8>, P: OutputPin> {
+pub enum CommandError<B: Transfer<u8>, P1: OutputPin, P2: OutputPin, P3: OutputPin> {
     /// SPI transfer error
     TransferError(B::Error),
 
     /// Error while setting GPIO state of EN pin
-    EnablePinError(P::Error),
+    EnablePinError(P1::Error),
 
     /// Error while setting GPIO state of HOLD pin
-    HoldPinError(P::Error),
+    HoldPinError(P3::Error),
 
     /// Error while setting GPIO state of WP pin
-    WriteProtectionPinError(P::Error),
+    WriteProtectionPinError(P2::Error),
 
     /// Chip is still busy executing another operation
     Busy,
@@ -257,12 +257,14 @@ pub enum CommandError<B: Transfer<u8>, P: OutputPin> {
 
 const CMD_AAI_PROGRAM: u8 = 0b1010_1101;
 
-impl<B: Transfer<u8>, P: OutputPin> Memory for Flash<B, P>
+impl<B: Transfer<u8>, P1: OutputPin, P2: OutputPin, P3: OutputPin> Memory for Flash<B, P1, P2, P3>
 where
     B::Error: Debug,
-    P::Error: Debug,
+    P1::Error: Debug,
+    P2::Error: Debug,
+    P3::Error: Debug,
 {
-    type Error = CommandError<B, P>;
+    type Error = CommandError<B, P1,P2,P3>;
 
     /// Switches to blocking mode
     fn set_blocking(&mut self) {
@@ -275,24 +277,24 @@ where
     }
 
     /// Reads and returns the status registers
-    fn read_status(&mut self) -> Result<Status, CommandError<B, P>> {
+    fn read_status(&mut self) -> Result<Status, CommandError<B, P1,P2,P3>> {
         Ok(Status::from_register(self.transfer(&mut [0b0000_0101, 0x0])?[1]))
     }
 
     /// Enables write operations
-    fn write_enable(&mut self) -> Result<(), CommandError<B, P>> {
+    fn write_enable(&mut self) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.transfer(&mut [0b0000_0110])?;
         Ok(())
     }
 
     /// Enables write operations
-    fn write_disable(&mut self) -> Result<(), CommandError<B, P>> {
+    fn write_disable(&mut self) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.transfer(&mut [0b0000_0100])?;
         Ok(())
     }
 
     /// Writes the given status to status registers
-    fn write_status(&mut self, status: Status) -> Result<(), CommandError<B, P>> {
+    fn write_status(&mut self, status: Status) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.write_enable()?;
 
         self.bus.transfer(&mut [0x0]).map_err(CommandError::TransferError)?;
@@ -303,7 +305,7 @@ where
 
     /// Erases the full chip.
     /// Waits until operation is completed in blocking mode, otherwise returns when command is sent
-    fn erase_full(&mut self) -> Result<(), CommandError<B, P>> {
+    fn erase_full(&mut self) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.write_enable()?;
         self.assert_not_busy()?;
 
@@ -313,7 +315,7 @@ where
 
     /// Programs/Writes the given byte at the given address. Disables internal write protection.
     /// Waits until operation is completed in blocking mode, otherwise returns when command is sent
-    fn byte_program(&mut self, address: u32, data: u8) -> Result<(), CommandError<B, P>> {
+    fn byte_program(&mut self, address: u32, data: u8) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.assert_valid_address(address)?;
 
         self.write_enable()?;
@@ -328,8 +330,9 @@ where
 
     /// Auto address increment (AAI) programming for writing larger amount of data
     /// Buffer needs to contain at least two bytes and an even data amount
-    fn aai_program(&mut self, address: u32, buffer: &[u8]) -> Result<(), CommandError<B, P>> {
+    fn aai_program(&mut self, address: u32, buffer: &[u8]) -> Result<(), CommandError<B, P1,P2,P3>> {
         self.assert_valid_address(address)?;
+
 
         if buffer.len() < 2 {
             return Err(CommandError::BufferTooSmall);
@@ -343,6 +346,7 @@ where
         self.assert_not_busy()?;
 
         let mut frame = [CMD_AAI_PROGRAM, 0x0, 0x0, 0x0, buffer[0], buffer[1]];
+
         self.address_command(address, &mut frame);
         self.transfer(&mut frame)?;
         self.wait(true)?;
@@ -356,7 +360,7 @@ where
     }
 
     /// Reads data with length L starting at the given address
-    fn read<const L: usize>(&mut self, address: u32) -> Result<[u8; L], CommandError<B, P>> {
+    fn read<const L: usize>(&mut self, address: u32) -> Result<[u8; L], CommandError<B, P1,P2,P3>> {
         self.assert_valid_address(address)?;
         self.configure()?;
 
@@ -386,12 +390,14 @@ where
     }
 }
 
-impl<B: Transfer<u8>, P: OutputPin> Flash<B, P>
+impl<B: Transfer<u8>, P1: OutputPin, P2: OutputPin, P3: OutputPin> Flash<B, P1, P2, P3>
 where
     B::Error: Debug,
-    P::Error: Debug,
+    P1::Error: Debug,
+    P2::Error: Debug,
+    P3::Error: Debug,
 {
-    pub fn new(bus: B, pin_enable: P, pin_write_protection: P, pin_hold: P) -> Self {
+    pub fn new(bus: B, pin_enable: P1, pin_write_protection: P2, pin_hold: P3) -> Self {
         Self {
             bus,
             pin_enable,
@@ -402,9 +408,10 @@ where
         }
     }
 
+
     /// Transfers the given data and returns the result
     /// Handles the EN pin status and sets the pin back to HIGH even on error
-    fn transfer<'a>(&'a mut self, data: &'a mut [u8]) -> Result<&'a [u8], CommandError<B, P>> {
+    fn transfer<'a>(&'a mut self, data: &'a mut [u8]) -> Result<&'a [u8], CommandError<B, P1,P2,P3>> {
         self.configure()?;
 
         self.pin_enable.set_low().map_err(CommandError::EnablePinError)?;
@@ -422,7 +429,7 @@ where
     }
 
     /// Returns an error in case device is busy
-    fn assert_not_busy(&mut self) -> Result<(), CommandError<B, P>> {
+    fn assert_not_busy(&mut self) -> Result<(), CommandError<B, P1,P2,P3>> {
         if self.read_status()?.busy {
             return Err(CommandError::Busy);
         }
@@ -431,7 +438,7 @@ where
     }
 
     /// Returns an error if the given address is out of range
-    fn assert_valid_address(&self, address: u32) -> Result<(), CommandError<B, P>> {
+    fn assert_valid_address(&self, address: u32) -> Result<(), CommandError<B, P1,P2,P3>> {
         if address > 16777216 {
             return Err(CommandError::InvalidAddress);
         }
@@ -440,13 +447,13 @@ where
     }
 
     /// Blocks until device is not busy anymore
-    fn wait(&mut self, force: bool) -> Result<(), CommandError<B, P>> {
+    fn wait(&mut self, force: bool) -> Result<(), CommandError<B, P1,P2,P3>> {
         while (self.blocking || force) && self.read_status()?.busy {}
         Ok(())
     }
 
     /// Sets the base GPIO states once
-    fn configure(&mut self) -> Result<(), CommandError<B, P>> {
+    fn configure(&mut self) -> Result<(), CommandError<B, P1,P2,P3>> {
         if self.configured {
             return Ok(());
         }
@@ -533,10 +540,12 @@ impl Status {
     }
 }
 
-impl<B: Transfer<u8>, P: OutputPin> Debug for CommandError<B, P>
+impl<B: Transfer<u8>, P1: OutputPin, P2: OutputPin, P3: OutputPin> Debug for CommandError<B, P1,P2,P3>
 where
     B::Error: Debug,
-    P::Error: Debug,
+    P1::Error: Debug,
+    P2::Error: Debug,
+    P3::Error: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
